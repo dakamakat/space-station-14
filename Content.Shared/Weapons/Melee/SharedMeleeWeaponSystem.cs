@@ -562,6 +562,10 @@ public abstract partial class SharedMeleeWeaponSystem : EntitySystem
         if (hitEvent.Handled)
             return;
 
+        // A target cancelled per-target is treated the same as a handled MeleeHitEvent.
+        if (!TryRaiseTargetDamageEvent(meleeUid, user, target.Value, out var targetEv))
+            return;
+
         var targets = new HashSet<EntityUid>(1)
         {
             target.Value,
@@ -580,7 +584,7 @@ public abstract partial class SharedMeleeWeaponSystem : EntitySystem
         var attackedEvent = new AttackedEvent(meleeUid, user, targetXform.Coordinates);
         RaiseLocalEvent(target.Value, attackedEvent);
 
-        var modifiedDamage = GetModifiedTargetDamage(meleeUid, user, target.Value, damage, hitEvent, attackedEvent);
+        var modifiedDamage = GetModifiedTargetDamage(damage, hitEvent, attackedEvent, targetEv);
 
         if (Damageable.TryChangeDamage(target.Value, modifiedDamage, out var damageResult, origin:user, ignoreResistances:resistanceBypass))
         {
@@ -622,20 +626,29 @@ public abstract partial class SharedMeleeWeaponSystem : EntitySystem
     }
 
     /// <summary>
+    /// Raises <see cref="GetMeleeTargetDamageEvent"/> on the weapon for a single target of a melee attack.
+    /// </summary>
+    /// <returns>False if a subscriber cancelled the attack on this target.</returns>
+    private bool TryRaiseTargetDamageEvent(EntityUid meleeUid,
+        EntityUid user,
+        EntityUid target,
+        out GetMeleeTargetDamageEvent targetEv)
+    {
+        targetEv = new GetMeleeTargetDamageEvent(meleeUid, user, target, new(), new());
+        RaiseLocalEvent(meleeUid, ref targetEv);
+        return !targetEv.Cancelled;
+    }
+
+    /// <summary>
     /// Calculates the final damage dealt to a single target of a melee attack,
     /// including bonuses and modifiers from <see cref="MeleeHitEvent"/>, <see cref="AttackedEvent"/>
     /// and the per-target <see cref="GetMeleeTargetDamageEvent"/>.
     /// </summary>
-    private DamageSpecifier GetModifiedTargetDamage(EntityUid meleeUid,
-        EntityUid user,
-        EntityUid target,
-        DamageSpecifier damage,
+    private static DamageSpecifier GetModifiedTargetDamage(DamageSpecifier damage,
         MeleeHitEvent hitEvent,
-        AttackedEvent attackedEvent)
+        AttackedEvent attackedEvent,
+        in GetMeleeTargetDamageEvent targetEv)
     {
-        var targetEv = new GetMeleeTargetDamageEvent(meleeUid, user, target, new(), new());
-        RaiseLocalEvent(meleeUid, ref targetEv);
-
         var modifiers = targetEv.Modifiers.Count == 0
             ? hitEvent.ModifiersList
             : hitEvent.ModifiersList.Concat(targetEv.Modifiers);
@@ -724,6 +737,19 @@ public abstract partial class SharedMeleeWeaponSystem : EntitySystem
         if (hitEvent.Handled)
             return true;
 
+        // Per-target changes. Cancelled targets are dropped, the same as a handled MeleeHitEvent but only for them.
+        var targetEvents = new Dictionary<EntityUid, GetMeleeTargetDamageEvent>(targets.Count);
+        foreach (var target in targets)
+        {
+            if (TryRaiseTargetDamageEvent(meleeUid, user, target, out var targetEv))
+                targetEvents[target] = targetEv;
+        }
+
+        if (targets.Count > 0 && targetEvents.Count == 0)
+            return true;
+
+        targets.IntersectWith(targetEvents.Keys);
+
         var weapon = GetEntity(ev.Weapon);
 
         Interaction.DoContactInteraction(user, weapon);
@@ -755,7 +781,7 @@ public abstract partial class SharedMeleeWeaponSystem : EntitySystem
 
             var attackedEvent = new AttackedEvent(meleeUid, user, GetCoordinates(ev.Coordinates));
             RaiseLocalEvent(entity, attackedEvent);
-            var modifiedDamage = GetModifiedTargetDamage(meleeUid, user, entity, damage, hitEvent, attackedEvent);
+            var modifiedDamage = GetModifiedTargetDamage(damage, hitEvent, attackedEvent, targetEvents[entity]);
 
             var damageResult = Damageable.ChangeDamage(entity, modifiedDamage, origin: user, ignoreResistances: resistanceBypass);
 

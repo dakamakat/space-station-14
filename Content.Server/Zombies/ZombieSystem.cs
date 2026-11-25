@@ -67,6 +67,7 @@ namespace Content.Server.Zombies
                 new[] { typeof(VocalSystem), typeof(BodyEmotesSystem) });
 
             SubscribeLocalEvent<ZombieComponent, MeleeHitEvent>(OnMeleeHit);
+            SubscribeLocalEvent<ZombieComponent, GetMeleeTargetDamageEvent>(OnGetMeleeTargetDamage);
             SubscribeLocalEvent<ZombieComponent, MobStateChangedEvent>(OnMobState);
             SubscribeLocalEvent<ZombieComponent, CloningEvent>(OnZombieCloning);
             SubscribeLocalEvent<ZombieComponent, TryingToSleepEvent>(OnSleepAttempt);
@@ -254,12 +255,10 @@ namespace Content.Server.Zombies
                 if (!TryComp<MobStateComponent>(uid, out var mobState))
                     continue;
 
+                // Don't infect, do not heal from bites, don't pass go!
+                // The damage itself is cancelled per target in OnGetMeleeTargetDamage.
                 if (HasComp<ZombieComponent>(uid) || HasComp<IncurableZombieComponent>(uid))
-                {
-                    // Don't infect, don't deal damage, do not heal from bites, don't pass go!
-                    args.Handled = true;
                     continue;
-                }
 
                 if (_mobState.IsAlive(uid, mobState))
                 {
@@ -278,10 +277,20 @@ namespace Content.Server.Zombies
                         continue;
 
                     // If the target is dead and can be infected, infect.
+                    // It is a zombie now, so OnGetMeleeTargetDamage cancels the damage to it.
                     ZombifyEntity(uid);
-                    args.Handled = true;
                 }
             }
+        }
+
+        /// <summary>
+        /// Zombies don't damage other zombies. This is done per target so that other targets of the same attack
+        /// still take damage.
+        /// </summary>
+        private void OnGetMeleeTargetDamage(Entity<ZombieComponent> entity, ref GetMeleeTargetDamageEvent args)
+        {
+            if (HasComp<ZombieComponent>(args.Target) || HasComp<IncurableZombieComponent>(args.Target))
+                args.Cancelled = true;
         }
 
         /// <summary>

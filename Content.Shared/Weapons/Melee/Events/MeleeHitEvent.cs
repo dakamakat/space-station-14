@@ -87,17 +87,28 @@ public sealed class MeleeHitEvent : HandledEntityEventArgs
 public record struct GetMeleeDamageEvent(EntityUid Weapon, DamageSpecifier Damage, List<DamageModifierSet> Modifiers, EntityUid User, bool ResistanceBypass = false);
 
 /// <summary>
-/// Raised directed on the melee weapon once for every entity that is about to be damaged by a melee attack,
-/// after <see cref="MeleeHitEvent"/> and <see cref="AttackedEvent"/>.
-/// Use this instead of <see cref="MeleeHitEvent"/> for bonus damage or modifiers that should only apply to specific targets.
+/// Raised directed on the melee weapon once for every entity hit by a melee attack, after <see cref="MeleeHitEvent"/>
+/// and before the entity is attacked (<see cref="AttackedEvent"/>) or damaged.
+/// Use this instead of <see cref="MeleeHitEvent"/> for changes that should only apply to specific targets,
+/// since <see cref="MeleeHitEvent"/> affects every entity hit by the attack.
 /// </summary>
 /// <param name="Weapon">The melee weapon used.</param>
 /// <param name="User">The entity attacking with the weapon.</param>
-/// <param name="Target">The entity about to be damaged.</param>
+/// <param name="Target">The entity being hit.</param>
 /// <param name="BonusDamage">Extra damage dealt to only this target. Applied before modifiers.</param>
 /// <param name="Modifiers">Extra modifier sets applied to the damage dealt to only this target.</param>
+/// <param name="Cancelled">
+/// If true, this target is skipped entirely: it is not attacked or damaged. Other targets of the same attack are unaffected.
+/// This is the per-target equivalent of handling <see cref="MeleeHitEvent"/>.
+/// </param>
 [ByRefEvent]
-public record struct GetMeleeTargetDamageEvent(EntityUid Weapon, EntityUid User, EntityUid Target, DamageSpecifier BonusDamage, List<DamageModifierSet> Modifiers);
+public record struct GetMeleeTargetDamageEvent(
+    EntityUid Weapon,
+    EntityUid User,
+    EntityUid Target,
+    DamageSpecifier BonusDamage,
+    List<DamageModifierSet> Modifiers,
+    bool Cancelled = false);
 
 /// <summary>
 /// Raised on a melee weapon to calculate the attack rate.

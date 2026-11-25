@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using Content.IntegrationTests.Fixtures.Attributes;
 using Content.IntegrationTests.Tests.Interaction;
+using Content.Server.Zombies;
 using Content.Shared.Damage.Components;
 using Content.Shared.Damage.Systems;
 using Content.Shared.FixedPoint;
@@ -28,6 +29,7 @@ public sealed class WeaponTests : InteractionTest
     [SidedDependency(Side.Server)] private DamageableSystem _sDamageable = default!;
     [SidedDependency(Side.Server)] private SharedGunSystem _sGun = default!;
     [SidedDependency(Side.Server)] private MetabolizerSystem _sMetabolizer = default!;
+    [SidedDependency(Side.Server)] private ZombieSystem _sZombie = default!;
 
     [Test]
     [Description("Tests that a gun that needs wielding can be spawned and shot properly.")]
@@ -112,6 +114,44 @@ public sealed class WeaponTests : InteractionTest
                 "Human was hit by the bio knife but took no bonus poison damage!");
             Assert.That(mouseDamage.DamageDict.GetValueOrDefault("Poison"), Is.EqualTo(FixedPoint2.Zero),
                 "Mouse took bio knife bonus damage even though it does not have the selected metabolizer!");
+        });
+    }
+
+    [Test]
+    [Description("Tests that a zombie wide attack skips fellow zombies without cancelling the damage to the other targets.")]
+    public async Task ZombieWideAttackOnlySkipsZombieTargetsTest()
+    {
+        await AddAtmosphere(); // prevent the mobs from suffocating
+
+        var humanNet = await SpawnTarget(MobHuman);
+        // Put the other zombie on another tile within reach of the player.
+        var zombieCoords = SEntMan.GetNetCoordinates(SEntMan.GetCoordinates(PlayerCoords).Offset(new Vector2(0f, 1f)));
+        var zombieNet = await Spawn(MobHuman, zombieCoords);
+
+        var sHuman = ToServer(humanNet);
+        var sZombie = ToServer(zombieNet);
+
+        await Server.WaitPost(() =>
+        {
+            _sZombie.ZombifyEntity(SPlayer);
+            _sZombie.ZombifyEntity(sZombie);
+        });
+        await Pair.RunSeconds(2f); // Let the zombie's own melee cooldown pass.
+
+        var zombieDamageBefore = _sDamageable.GetPositiveDamage((sZombie, Comp<DamageableComponent>(zombieNet))).GetTotal();
+
+        await AttemptHeavyAttack(humanNet, zombieNet);
+        await RunTicks(5);
+
+        var humanDamage = _sDamageable.GetPositiveDamage((sHuman, Comp<DamageableComponent>(humanNet))).GetTotal();
+        var zombieDamage = _sDamageable.GetPositiveDamage((sZombie, Comp<DamageableComponent>(zombieNet))).GetTotal();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(humanDamage, Is.GreaterThan(FixedPoint2.Zero),
+                "Human took no damage from a zombie wide attack that also hit another zombie!");
+            Assert.That(zombieDamage, Is.LessThanOrEqualTo(zombieDamageBefore),
+                "Zombie took damage from another zombie's attack!");
         });
     }
 }
