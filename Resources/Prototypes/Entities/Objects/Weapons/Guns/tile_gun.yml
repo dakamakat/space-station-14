@@ -29,6 +29,7 @@
   - type: AmmoCounter
   - type: Gun
     fireRate: 4
+    projectileSpeed: 30 # Tiles are thrown items, not projectiles. Faster than this and they can clip through walls.
     maxAngle: 15
     minAngle: 1
     selectedMode: FullAuto
