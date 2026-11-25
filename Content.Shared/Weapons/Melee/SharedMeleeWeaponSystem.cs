@@ -376,6 +376,15 @@ public abstract partial class SharedMeleeWeaponSystem : EntitySystem
         return AttemptAttack(user, weaponUid, weapon, new LightAttackEvent(GetNetEntity(target), GetNetEntity(weaponUid), GetNetCoordinates(targetXform.Coordinates)), null);
     }
 
+    /// <summary>
+    /// Attempts a wide (heavy) attack towards <paramref name="coordinates"/> that hits <paramref name="targets"/>.
+    /// Targets are still validated the same way as client-sent wide attacks.
+    /// </summary>
+    public bool AttemptHeavyAttack(EntityUid user, EntityUid weaponUid, MeleeWeaponComponent weapon, HashSet<EntityUid> targets, EntityCoordinates coordinates)
+    {
+        return AttemptAttack(user, weaponUid, weapon, new HeavyAttackEvent(GetNetEntity(weaponUid), GetNetEntitySet(targets), GetNetCoordinates(coordinates)), null);
+    }
+
     public bool AttemptDisarmAttack(EntityUid user, EntityUid weaponUid, MeleeWeaponComponent weapon, EntityUid target)
     {
         if (!TryComp(target, out TransformComponent? targetXform))
@@ -571,7 +580,7 @@ public abstract partial class SharedMeleeWeaponSystem : EntitySystem
         var attackedEvent = new AttackedEvent(meleeUid, user, targetXform.Coordinates);
         RaiseLocalEvent(target.Value, attackedEvent);
 
-        var modifiedDamage = DamageSpecifier.ApplyModifierSets(damage + hitEvent.BonusDamage + attackedEvent.BonusDamage, hitEvent.ModifiersList);
+        var modifiedDamage = GetModifiedTargetDamage(meleeUid, user, target.Value, damage, hitEvent, attackedEvent);
 
         if (Damageable.TryChangeDamage(target.Value, modifiedDamage, out var damageResult, origin:user, ignoreResistances:resistanceBypass))
         {
@@ -610,6 +619,30 @@ public abstract partial class SharedMeleeWeaponSystem : EntitySystem
                 UndamagedAttack((meleeUid, component), target.Value, user);
             }
         }
+    }
+
+    /// <summary>
+    /// Calculates the final damage dealt to a single target of a melee attack,
+    /// including bonuses and modifiers from <see cref="MeleeHitEvent"/>, <see cref="AttackedEvent"/>
+    /// and the per-target <see cref="GetMeleeTargetDamageEvent"/>.
+    /// </summary>
+    private DamageSpecifier GetModifiedTargetDamage(EntityUid meleeUid,
+        EntityUid user,
+        EntityUid target,
+        DamageSpecifier damage,
+        MeleeHitEvent hitEvent,
+        AttackedEvent attackedEvent)
+    {
+        var targetEv = new GetMeleeTargetDamageEvent(meleeUid, user, target, new(), new());
+        RaiseLocalEvent(meleeUid, ref targetEv);
+
+        var modifiers = targetEv.Modifiers.Count == 0
+            ? hitEvent.ModifiersList
+            : hitEvent.ModifiersList.Concat(targetEv.Modifiers);
+
+        return DamageSpecifier.ApplyModifierSets(
+            damage + hitEvent.BonusDamage + attackedEvent.BonusDamage + targetEv.BonusDamage,
+            modifiers);
     }
 
     protected abstract void DoDamageEffect(HashSet<EntityUid> targets, EntityUid? user,  TransformComponent targetXform);
@@ -722,7 +755,7 @@ public abstract partial class SharedMeleeWeaponSystem : EntitySystem
 
             var attackedEvent = new AttackedEvent(meleeUid, user, GetCoordinates(ev.Coordinates));
             RaiseLocalEvent(entity, attackedEvent);
-            var modifiedDamage = DamageSpecifier.ApplyModifierSets(damage + hitEvent.BonusDamage + attackedEvent.BonusDamage, hitEvent.ModifiersList);
+            var modifiedDamage = GetModifiedTargetDamage(meleeUid, user, entity, damage, hitEvent, attackedEvent);
 
             var damageResult = Damageable.ChangeDamage(entity, modifiedDamage, origin: user, ignoreResistances: resistanceBypass);
 

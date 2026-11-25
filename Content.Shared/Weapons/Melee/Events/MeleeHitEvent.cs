@@ -9,6 +9,10 @@ namespace Content.Shared.Weapons.Melee.Events;
 ///     Raised directed on the melee weapon entity used to attack something in combat mode,
 ///     whether through a click attack or wide attack.
 /// </summary>
+/// <remarks>
+///     This is raised once per attack, so <see cref="BonusDamage"/> and <see cref="ModifiersList"/> apply to every hit entity.
+///     For target-specific damage changes use <see cref="GetMeleeTargetDamageEvent"/>.
+/// </remarks>
 public sealed class MeleeHitEvent : HandledEntityEventArgs
 {
     /// <summary>
@@ -81,6 +85,19 @@ public sealed class MeleeHitEvent : HandledEntityEventArgs
 /// </summary>
 [ByRefEvent]
 public record struct GetMeleeDamageEvent(EntityUid Weapon, DamageSpecifier Damage, List<DamageModifierSet> Modifiers, EntityUid User, bool ResistanceBypass = false);
+
+/// <summary>
+/// Raised directed on the melee weapon once for every entity that is about to be damaged by a melee attack,
+/// after <see cref="MeleeHitEvent"/> and <see cref="AttackedEvent"/>.
+/// Use this instead of <see cref="MeleeHitEvent"/> for bonus damage or modifiers that should only apply to specific targets.
+/// </summary>
+/// <param name="Weapon">The melee weapon used.</param>
+/// <param name="User">The entity attacking with the weapon.</param>
+/// <param name="Target">The entity about to be damaged.</param>
+/// <param name="BonusDamage">Extra damage dealt to only this target. Applied before modifiers.</param>
+/// <param name="Modifiers">Extra modifier sets applied to the damage dealt to only this target.</param>
+[ByRefEvent]
+public record struct GetMeleeTargetDamageEvent(EntityUid Weapon, EntityUid User, EntityUid Target, DamageSpecifier BonusDamage, List<DamageModifierSet> Modifiers);
 
 /// <summary>
 /// Raised on a melee weapon to calculate the attack rate.

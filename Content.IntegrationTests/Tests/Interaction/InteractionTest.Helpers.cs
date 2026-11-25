@@ -564,6 +564,27 @@ public abstract partial class InteractionTest
     }
 
     /// <summary>
+    /// Simulate a wide (heavy) attack towards TargetCoords that hits the given targets.
+    /// </summary>
+    protected async Task AttemptHeavyAttack(params NetEntity[] targets)
+    {
+        // Enter combat mode before attacking.
+        var wasInCombatMode = IsInCombatMode();
+        await SetCombatMode(true);
+
+        var sTargets = targets.Select(t => ToServer(t)).ToHashSet();
+
+        await Server.WaitAssertion(() =>
+        {
+            Assert.That(SMelee.TryGetWeapon(SPlayer, out var weaponUid, out var weaponComp), "No weapon to attack with.");
+            SMelee.AttemptHeavyAttack(SPlayer, weaponUid, weaponComp!, sTargets, ToServer(TargetCoords));
+        });
+
+        // If the player was not in combat mode before then disable it again.
+        await SetCombatMode(wasInCombatMode);
+    }
+
+    /// <summary>
     /// Simulate a disarm attack that hits its target.
     /// </summary>
     protected async Task AttemptDisarmAttack(NetEntity? target = null)

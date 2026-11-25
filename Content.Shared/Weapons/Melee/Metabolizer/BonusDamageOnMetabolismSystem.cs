@@ -44,22 +44,17 @@ public sealed partial class BonusDamageOnMetabolismSystem : EntitySystem
     }
 
     [SubscribeLocalEvent]
-    private void OnSwingTrigger(Entity<BonusDamageOnMetabolismComponent> ent, ref MeleeHitEvent args)
+    private void OnGetTargetDamage(Entity<BonusDamageOnMetabolismComponent> ent, ref GetMeleeTargetDamageEvent args)
     {
-        if (ent.Comp.SelectedMetabolizer is null)
+        if (ent.Comp.SelectedMetabolizer is not { } metabolizer)
             return;
 
-        foreach (var hitEntity in args.HitEntities)
-        {
-            if (TryComp<MobStateComponent>(hitEntity, out var mobState) && !ent.Comp.ValidMobStates.Contains(mobState.CurrentState))
-                continue;
-
-            if (!_metabolizer.BodyHasMetabolizer(hitEntity, ent.Comp.SelectedMetabolizer.Value))
-                continue;
-
-            // Add the bonus damage and quit!
-            args.BonusDamage =+ ent.Comp.Damage;
+        if (TryComp<MobStateComponent>(args.Target, out var mobState) && !ent.Comp.ValidMobStates.Contains(mobState.CurrentState))
             return;
-        }
+
+        if (!_metabolizer.BodyHasMetabolizer(args.Target, metabolizer))
+            return;
+
+        args.BonusDamage += ent.Comp.Damage;
     }
 }

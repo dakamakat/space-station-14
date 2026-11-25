@@ -1,13 +1,17 @@
 #nullable enable
+using System.Collections.Generic;
+using System.Numerics;
 using Content.IntegrationTests.Fixtures.Attributes;
 using Content.IntegrationTests.Tests.Interaction;
 using Content.Shared.Damage.Components;
 using Content.Shared.Damage.Systems;
 using Content.Shared.FixedPoint;
+using Content.Shared.Metabolism;
 using Content.Shared.Weapons.Ranged.Components;
 using Content.Shared.Weapons.Ranged.Systems;
 using Content.Shared.Wieldable.Components;
 using Robust.Shared.GameObjects;
+using Robust.Shared.Map;
 using Robust.Shared.Prototypes;
 
 namespace Content.IntegrationTests.Tests.Weapons;
@@ -17,9 +21,13 @@ public sealed class WeaponTests : InteractionTest
     protected override string PlayerPrototype => "MobHuman"; // The default test mob only has one hand
     private static readonly EntProtoId MobHuman = "MobHuman";
     private static readonly EntProtoId SniperMosin = "WeaponSniperMosin";
+    private static readonly EntProtoId MobMouse = "MobMouse";
+    private static readonly EntProtoId BioKnife = "XenoborgBioKnife";
+    private static readonly ProtoId<MetabolizerTypePrototype> HumanMetabolizer = "Human";
 
     [SidedDependency(Side.Server)] private DamageableSystem _sDamageable = default!;
     [SidedDependency(Side.Server)] private SharedGunSystem _sGun = default!;
+    [SidedDependency(Side.Server)] private MetabolizerSystem _sMetabolizer = default!;
 
     [Test]
     [Description("Tests that a gun that needs wielding can be spawned and shot properly.")]
@@ -66,5 +74,44 @@ public sealed class WeaponTests : InteractionTest
         Assert.That(_sDamageable.GetPositiveDamage(sUrist).GetTotal(),
             Is.GreaterThan(FixedPoint2.Zero),
             "Mosin was fired but urist sustained no damage!");
+    }
+
+    [Test]
+    [Description("Tests that per-target melee bonus damage (bio knife) only applies to matching targets of a wide attack.")]
+    public async Task PerTargetMeleeBonusDamageTest()
+    {
+        await AddAtmosphere(); // prevent the mobs from suffocating
+
+        var humanNet = await SpawnTarget(MobHuman);
+        // Put the mouse on another tile within reach of the player.
+        var mouseCoords = SEntMan.GetNetCoordinates(SEntMan.GetCoordinates(PlayerCoords).Offset(new Vector2(0f, 1f)));
+        var mouseNet = await Spawn(MobMouse, mouseCoords);
+
+        var sHuman = ToServer(humanNet);
+        var sMouse = ToServer(mouseNet);
+
+        await Server.WaitAssertion(() =>
+        {
+            Assert.That(_sMetabolizer.BodyHasMetabolizer(sHuman, HumanMetabolizer), "Human has no human metabolizer!");
+            Assert.That(_sMetabolizer.BodyHasMetabolizer(sMouse, HumanMetabolizer), Is.False, "Mouse has a human metabolizer!");
+        });
+
+        await PlaceInHands(BioKnife);
+        await Pair.RunSeconds(2f); // Melee weapons have a cooldown when picking them up.
+
+        await AttemptHeavyAttack(humanNet, mouseNet);
+        await RunTicks(5);
+
+        var humanDamage = _sDamageable.GetPositiveDamage((sHuman, Comp<DamageableComponent>(humanNet)));
+        var mouseDamage = _sDamageable.GetPositiveDamage((sMouse, Comp<DamageableComponent>(mouseNet)));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(mouseDamage.GetTotal(), Is.GreaterThan(FixedPoint2.Zero), "Mouse was not hit by the wide attack!");
+            Assert.That(humanDamage.DamageDict.GetValueOrDefault("Poison"), Is.GreaterThan(FixedPoint2.Zero),
+                "Human was hit by the bio knife but took no bonus poison damage!");
+            Assert.That(mouseDamage.DamageDict.GetValueOrDefault("Poison"), Is.EqualTo(FixedPoint2.Zero),
+                "Mouse took bio knife bonus damage even though it does not have the selected metabolizer!");
+        });
     }
 }
